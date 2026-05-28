@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // restartWindowServer kills WindowServer (SIGKILL).
@@ -16,10 +15,14 @@ import (
 func restartWindowServer() {
 	dbgSection("ACTION: restartWindowServer")
 	dbgRawCmd("ps", "aux") // snapshot of processes before killing
-	osNotify("VRAM Guard", "Restarting WindowServer — you will be logged out in 2 seconds")
-	time.Sleep(2 * time.Second)
-	out, err := exec.Command("killall", "-9", "WindowServer").CombinedOutput()
-	dbgCmd("killall -9 WindowServer", out, err)
+	// WindowServer runs as _windowserver — SIGKILL also requires elevation on Sonoma.
+	// The password prompt fires, then osascript executes the kill in a child process;
+	// our app is killed shortly after as the session tears down — that is expected.
+	err := runElevated("killall -9 WindowServer")
+	dbgf("killall -9 WindowServer (elevated): %v", err)
+	if err != nil {
+		osNotify("VRAM Guard", "Restart failed: "+err.Error())
+	}
 }
 
 // reloadWindowServer sends SIGHUP to WindowServer.
