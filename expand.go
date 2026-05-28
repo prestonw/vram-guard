@@ -112,6 +112,10 @@ func showExpandVRAMDialog() {
 // applyVRAMExpansion writes VRAM,totalsize into OpenCore config.plist via a
 // Python helper script run with administrator privileges.
 func applyVRAMExpansion(targetMB, currentMB int64) {
+	dbgSection("applyVRAMExpansion")
+	dbgf("targetMB=%d  currentMB=%d", targetMB, currentMB)
+	// Log EFI disk info before mounting
+	dbgRawCmd("diskutil", "list")
 	targetBytes := targetMB * 1024 * 1024
 	tmpPath := fmt.Sprintf("/tmp/vramguard_apply_%d.py", os.Getpid())
 
@@ -119,8 +123,13 @@ func applyVRAMExpansion(targetMB, currentMB int64) {
 	// plistlib handles both XML and binary OpenCore configs automatically.
 	py := fmt.Sprintf(`import plistlib, struct, subprocess, sys, os
 
+r = subprocess.run(['diskutil', 'mount', 'EFI'], capture_output=True, text=True)
+# Output is "Volume EFI on disk0s1 mounted" or similar; extract mount point
 efi = '/Volumes/EFI'
-subprocess.run(['diskutil', 'mount', 'EFI'], capture_output=True)
+for word in r.stdout.split():
+    if word.startswith('/Volumes/'):
+        efi = word
+        break
 
 cfg = efi + '/EFI/OC/config.plist'
 if not os.path.exists(cfg):
@@ -139,24 +148,41 @@ for p in config.get('DeviceProperties', {}).get('Add', {}):
         gpu = p
         break
 
-config.setdefault('DeviceProperties', {}).setdefault('Add', {}).setdefault(gpu, {})['VRAM,totalsize'] = struct.pack('<Q', %d)
+entry = config.setdefault('DeviceProperties', {}).setdefault('Add', {}).setdefault(gpu, {})
+# VRAM,totalsize — read by IOAccelerator/AMD kext; 4-byte little-endian (NOT 8-byte)
+entry['VRAM,totalsize'] = struct.pack('<I', %d)
+# ATY,MemSize — read by AMDRadeonX3000 (6xxx series); same 4-byte LE format
+entry['ATY,MemSize'] = struct.pack('<I', %d)
 
 with open(cfg, 'wb') as f:
     plistlib.dump(config, f, fmt=plistlib.FMT_XML)
 
+# Verify the write was accepted
+with open(cfg, 'rb') as f:
+    verify = plistlib.load(f)
+written = verify.get('DeviceProperties', {}).get('Add', {}).get(gpu, {})
+if 'VRAM,totalsize' not in written:
+    subprocess.run(['diskutil', 'unmount', efi], capture_output=True)
+    print('ERROR: write verification failed — key not found after save')
+    sys.exit(1)
+
 subprocess.run(['diskutil', 'unmount', efi], capture_output=True)
 print('OK:' + gpu)
-`, targetBytes)
+`, targetBytes, targetBytes)
+
+	dbgScript("expand_apply.py", py)
 
 	if err := os.WriteFile(tmpPath, []byte(py), 0644); err != nil {
+		dbgf("WriteFile failed: %v", err)
 		osNotify("VRAM Guard", "Could not write expansion script: "+err.Error())
 		return
 	}
 	defer os.Remove(tmpPath)
 
-	out, err := exec.Command("osascript", "-e",
-		fmt.Sprintf(`do shell script "/usr/bin/python3 %s" with administrator privileges`, tmpPath),
-	).CombinedOutput()
+	dbgf("running: /usr/bin/python3 %s (elevated)", tmpPath)
+	osaCmd := fmt.Sprintf(`do shell script "/usr/bin/python3 %s" with administrator privileges`, tmpPath)
+	out, err := exec.Command("osascript", "-e", osaCmd).CombinedOutput()
+	dbgCmd("osascript python3 expand", out, err)
 
 	result := strings.TrimSpace(string(out))
 	if err != nil || !strings.HasPrefix(result, "OK:") {
@@ -164,16 +190,27 @@ print('OK:' + gpu)
 		if msg == "" {
 			msg = err.Error()
 		}
+		dbgf("expansion FAILED: %s", msg)
+		// Log current config state for diagnostics
+		dbgSection("config.plist after failed expansion (if EFI still mounted)")
+		dbgRawCmd("sh", "-c", "cat /Volumes/EFI/EFI/OC/config.plist 2>/dev/null | head -100 || echo 'EFI not mounted or file not found'")
 		script := fmt.Sprintf(
-			`display dialog "Expansion failed:\n\n%s" `+
+			`display dialog "Expansion failed:\n\n%s\n\nFull details in:\n%s" `+
 				`with title "VRAM Guard" buttons {"OK"} default button "OK"`,
 			strings.ReplaceAll(msg, `"`, `\"`),
+			strings.ReplaceAll(debugLogPath(), `"`, `\"`),
 		)
 		exec.Command("osascript", "-e", script).Run() //nolint:errcheck
 		return
 	}
+	dbgf("expansion script OK")
 
 	gpuPath := strings.TrimPrefix(result, "OK:")
+	dbgf("GPU path used: %s", gpuPath)
+	// Log the written config section for verification
+	dbgSection("config.plist DeviceProperties after write")
+	dbgRawCmd("sh", "-c", "diskutil mount EFI >/dev/null 2>&1; plutil -p /Volumes/EFI/EFI/OC/config.plist | grep -A20 DeviceProperties; diskutil unmount /Volumes/EFI >/dev/null 2>&1")
+
 	doneScript := fmt.Sprintf(
 		`display dialog "VRAM expanded to %d MB (was %d MB).\n\nInjected into: %s\n\nReboot to apply the change." `+
 			`with title "VRAM Guard — Done" buttons {"Later", "Reboot Now"} default button "Later"`,
@@ -199,8 +236,12 @@ func revertVRAMExpansion() {
 	tmpPath := fmt.Sprintf("/tmp/vramguard_revert_%d.py", os.Getpid())
 	py := `import plistlib, subprocess, sys, os
 
+r = subprocess.run(['diskutil', 'mount', 'EFI'], capture_output=True, text=True)
 efi = '/Volumes/EFI'
-subprocess.run(['diskutil', 'mount', 'EFI'], capture_output=True)
+for word in r.stdout.split():
+    if word.startswith('/Volumes/'):
+        efi = word
+        break
 
 cfg = efi + '/EFI/OC/config.plist'
 if not os.path.exists(cfg):
@@ -213,9 +254,10 @@ with open(cfg, 'rb') as f:
 
 changed = False
 for props in config.get('DeviceProperties', {}).get('Add', {}).values():
-    if 'VRAM,totalsize' in props:
-        del props['VRAM,totalsize']
-        changed = True
+    for key in ('VRAM,totalsize', 'ATY,MemSize'):
+        if key in props:
+            del props[key]
+            changed = True
 
 if changed:
     with open(cfg, 'wb') as f:

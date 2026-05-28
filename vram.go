@@ -38,10 +38,22 @@ var (
 // getVRAMStats queries ioreg for live VRAM usage on the AMD discrete GPU.
 // Total is derived from used+free (the driver-managed pool, ~438 MB on 512 MB hardware).
 // This is more accurate than the declared 512 MB because ~74 MB is firmware-reserved.
+// logVRAMOnce gates debug logging so ioreg output is only written on first call
+// and then again every ~60 polls (~5 min) to avoid flooding the log.
+var logVRAMCounter int
+
 func getVRAMStats() (VRAMStats, error) {
 	out, err := exec.Command("ioreg", "-r", "-w", "0", "-c", "IOAccelerator").Output()
 	if err != nil {
+		dbgf("getVRAMStats: ioreg failed: %v", err)
 		return VRAMStats{}, fmt.Errorf("ioreg: %w", err)
+	}
+
+	// Log full ioreg output on first call and every 60 polls (~5 min).
+	logVRAMCounter++
+	if logVRAMCounter == 1 || logVRAMCounter%60 == 0 {
+		dbgSection(fmt.Sprintf("ioreg IOAccelerator (poll #%d)", logVRAMCounter))
+		dbgWrite(string(out) + "\n")
 	}
 
 	text := string(out)
@@ -49,9 +61,11 @@ func getVRAMStats() (VRAMStats, error) {
 	freeMatch := reFree.FindStringSubmatch(text)
 
 	if len(usedMatch) < 2 {
+		dbgf("getVRAMStats: inUseVidMemoryBytes not found in ioreg output")
 		return VRAMStats{}, fmt.Errorf("inUseVidMemoryBytes not found — GPU driver may not expose it via IOAccelerator")
 	}
 	if len(freeMatch) < 2 {
+		dbgf("getVRAMStats: vramFreeBytes not found in ioreg output")
 		return VRAMStats{}, fmt.Errorf("vramFreeBytes not found in IOAccelerator output")
 	}
 
@@ -60,6 +74,7 @@ func getVRAMStats() (VRAMStats, error) {
 	total := used + free
 
 	if total == 0 {
+		dbgf("getVRAMStats: total is zero (used=%d free=%d)", used, free)
 		return VRAMStats{}, fmt.Errorf("total VRAM is zero — unexpected ioreg values")
 	}
 
@@ -67,6 +82,10 @@ func getVRAMStats() (VRAMStats, error) {
 	if pct > 100 {
 		pct = 100
 	}
+
+	// Log every reading at trace level (concise)
+	dbgf("VRAM  used=%d free=%d total=%d pct=%d%%", used, free, total, pct)
+
 	return VRAMStats{UsedBytes: used, TotalBytes: total, Percent: pct}, nil
 }
 

@@ -14,16 +14,20 @@ import (
 // This logs the user out and reinitialises the GPU driver — the closest thing to a
 // soft GPU reset on macOS. The app itself will be killed as part of this process.
 func restartWindowServer() {
+	dbgSection("ACTION: restartWindowServer")
+	dbgRawCmd("ps", "aux") // snapshot of processes before killing
 	osNotify("VRAM Guard", "Restarting WindowServer — you will be logged out in 2 seconds")
 	time.Sleep(2 * time.Second)
-	// WindowServer runs as the current user; no elevation needed.
-	exec.Command("killall", "-9", "WindowServer").Run() //nolint:errcheck
+	out, err := exec.Command("killall", "-9", "WindowServer").CombinedOutput()
+	dbgCmd("killall -9 WindowServer", out, err)
 }
 
 // reloadWindowServer sends SIGHUP to WindowServer.
 // Less destructive than a full kill — may recover a stuck compositor without logging out.
 func reloadWindowServer() {
+	dbgSection("ACTION: reloadWindowServer")
 	out, err := exec.Command("pkill", "-HUP", "WindowServer").CombinedOutput()
+	dbgCmd("pkill -HUP WindowServer", out, err)
 	if err != nil {
 		osNotify("VRAM Guard", "Reload failed: "+strings.TrimSpace(string(out)))
 	}
@@ -32,11 +36,13 @@ func reloadWindowServer() {
 // displaySleepKick puts the display to sleep immediately.
 // Sometimes wakes a stuck Metal compositor when the display comes back on.
 func displaySleepKick() {
-	// pmset displaysleepnow works without sudo on macOS for the current user's session.
+	dbgSection("ACTION: displaySleepKick")
 	out, err := exec.Command("pmset", "displaysleepnow").CombinedOutput()
+	dbgCmd("pmset displaysleepnow", out, err)
 	if err != nil {
-		// Fall back to elevated run if it failed without root
+		dbgf("pmset displaysleepnow failed, trying elevated")
 		if elevErr := runElevated("pmset displaysleepnow"); elevErr != nil {
+			dbgf("elevated pmset also failed: %v", elevErr)
 			osNotify("VRAM Guard", "Sleep kick failed: "+strings.TrimSpace(string(out)))
 		}
 	}
