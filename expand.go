@@ -28,6 +28,9 @@ func getSystemRAMMB() int64 {
 // The GPU uses system RAM (via GART) to back the extra allocation. Requires reboot.
 func showExpandVRAMDialog() {
 	totalRAM := getSystemRAMMB()
+	if totalRAM == 0 {
+		totalRAM = 8192 // safe fallback; user sees actual value in dialog
+	}
 	stats, _ := getVRAMStats()
 	currentMB := stats.TotalBytes / (1024 * 1024)
 	if currentMB == 0 {
@@ -57,7 +60,7 @@ func showExpandVRAMDialog() {
 	if len(labels) == 0 {
 		script := fmt.Sprintf(
 			`display dialog "No expansion options available.\n\nCurrent VRAM: %d MB\nSystem RAM:   %d MB\n\nYou need at least twice the target VRAM in system RAM (half reserved for macOS)." `+
-				`with title "VRAM Guard \u2014 Expand VRAM" buttons {"OK"} default button "OK"`,
+				`with title "VRAM Guard — Expand VRAM" buttons {"OK"} default button "OK"`,
 			currentMB, totalRAM,
 		)
 		exec.Command("osascript", "-e", script).Run() //nolint:errcheck
@@ -67,11 +70,11 @@ func showExpandVRAMDialog() {
 	// Info / warning screen
 	infoScript := fmt.Sprintf(
 		`display dialog "VRAM Expansion patches your OpenCore bootloader config to declare more VRAM to the AMD GPU driver. The extra allocation is backed by system RAM via GART.\n\nCurrent VRAM:  %d MB\nSystem RAM:    %d MB\nMax safe offer: %d MB (half of RAM)\n\nA reboot is required after applying. Only do this on an OCLP system with OpenCore." `+
-			`with title "VRAM Guard \u2014 Expand VRAM" buttons {"Cancel", "Choose Size \u2192"} default button "Choose Size \u2192"`,
+			`with title "VRAM Guard — Expand VRAM" buttons {"Cancel", "Choose Size >>"} default button "Choose Size >>"`,
 		currentMB, totalRAM, totalRAM/2,
 	)
-	infoOut, _ := exec.Command("osascript", "-e", infoScript).CombinedOutput()
-	if !strings.Contains(string(infoOut), "Choose Size") {
+	infoOut, infoErr := exec.Command("osascript", "-e", infoScript).CombinedOutput()
+	if infoErr != nil || !strings.Contains(string(infoOut), "Choose Size") {
 		return
 	}
 
@@ -81,7 +84,7 @@ func showExpandVRAMDialog() {
 		quotedLabels[i] = `"` + l + `"`
 	}
 	pickScript := fmt.Sprintf(
-		`choose from list {%s} with title "VRAM Guard \u2014 Select VRAM Size" `+
+		`choose from list {%s} with title "VRAM Guard — Select VRAM Size" `+
 			`with prompt "Current VRAM: %d MB  |  System RAM: %d MB\nChoose new total VRAM allocation:" `+
 			`default items {"%s"} without multiple selections allowed`,
 		strings.Join(quotedLabels, ", "), currentMB, totalRAM, labels[0],
@@ -173,7 +176,7 @@ print('OK:' + gpu)
 	gpuPath := strings.TrimPrefix(result, "OK:")
 	doneScript := fmt.Sprintf(
 		`display dialog "VRAM expanded to %d MB (was %d MB).\n\nInjected into: %s\n\nReboot to apply the change." `+
-			`with title "VRAM Guard \u2014 Done" buttons {"Later", "Reboot Now"} default button "Later"`,
+			`with title "VRAM Guard — Done" buttons {"Later", "Reboot Now"} default button "Later"`,
 		targetMB, currentMB, gpuPath,
 	)
 	rebootOut, _ := exec.Command("osascript", "-e", doneScript).CombinedOutput()
@@ -187,7 +190,7 @@ print('OK:' + gpu)
 // revertVRAMExpansion removes the VRAM,totalsize key from OpenCore config.plist.
 func revertVRAMExpansion() {
 	confirmScript := `display dialog "This removes the VRAM expansion from your OpenCore config and restores the default VRAM size.\n\nA reboot is required to take effect." ` +
-		`with title "VRAM Guard \u2014 Revert Expansion" buttons {"Cancel", "Revert"} default button "Cancel"`
+		`with title "VRAM Guard — Revert Expansion" buttons {"Cancel", "Revert"} default button "Cancel"`
 	out, _ := exec.Command("osascript", "-e", confirmScript).CombinedOutput()
 	if !strings.Contains(string(out), "button returned:Revert") {
 		return
@@ -247,7 +250,7 @@ subprocess.run(['diskutil', 'unmount', efi], capture_output=True)
 	msg := strings.TrimPrefix(result, "OK:")
 	doneScript := fmt.Sprintf(
 		`display dialog "%s\n\nReboot to apply." `+
-			`with title "VRAM Guard \u2014 Reverted" buttons {"Later", "Reboot Now"} default button "Later"`,
+			`with title "VRAM Guard — Reverted" buttons {"Later", "Reboot Now"} default button "Later"`,
 		msg,
 	)
 	rebootOut, _ := exec.Command("osascript", "-e", doneScript).CombinedOutput()
