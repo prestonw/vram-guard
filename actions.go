@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -71,6 +72,19 @@ func osNotify(title, message string) {
 		strings.ReplaceAll(title, `"`, `\"`),
 	)
 	exec.Command("osascript", "-e", script).Run() //nolint:errcheck
+}
+
+// confirmAndKill shows a native macOS confirmation dialog then kills the process if confirmed.
+func confirmAndKill(pid int, name string) {
+	script := fmt.Sprintf(
+		`display dialog "Kill \"%s\" (PID %d)?\n\nThis may free GPU memory but will force-quit the app." `+
+			`with title "VRAM Guard" buttons {"Cancel", "Kill"} default button "Cancel"`,
+		strings.ReplaceAll(name, `"`, `\"`), pid,
+	)
+	out, _ := exec.Command("osascript", "-e", script).CombinedOutput()
+	if strings.Contains(string(out), "button returned:Kill") {
+		exec.Command("kill", strconv.Itoa(pid)).Run() //nolint:errcheck
+	}
 }
 
 // runElevated runs a shell command via osascript with administrator privileges,
