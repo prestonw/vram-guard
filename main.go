@@ -58,10 +58,13 @@ func onReady() {
 
 	mInfo := systray.AddMenuItem("GPU Details...", "Show VRAM breakdown in a dialog")
 	systray.AddSeparator()
+	mExpand := systray.AddMenuItem("Expand VRAM...", "Patch OpenCore to allocate system RAM as extra VRAM (reboot required)")
+	mRevert := systray.AddMenuItem("Revert VRAM Expansion", "Remove the VRAM expansion from OpenCore config (reboot required)")
+	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit VRAM Guard", "")
 
 	go pollLoop(mStats, procItems)
-	go handleClicks(procItems, mSleep, mReload, mRestart, mInfo, mQuit)
+	go handleClicks(procItems, mSleep, mReload, mRestart, mInfo, mExpand, mRevert, mQuit)
 }
 
 // prevPercent tracks the last reading to fire threshold alerts only on crossing.
@@ -126,7 +129,7 @@ func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
 	}
 }
 
-func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mInfo, mQuit *systray.MenuItem) {
+func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mInfo, mExpand, mRevert, mQuit *systray.MenuItem) {
 	for {
 		select {
 		case <-procItems[0].ClickedCh:
@@ -147,6 +150,10 @@ func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mInf
 			restartWindowServer()
 		case <-mInfo.ClickedCh:
 			showGPUInfo()
+		case <-mExpand.ClickedCh:
+			go showExpandVRAMDialog()
+		case <-mRevert.ClickedCh:
+			go revertVRAMExpansion()
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			return

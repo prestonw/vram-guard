@@ -12,6 +12,8 @@ A macOS menu bar app that monitors GPU memory on OpenCore Legacy Patcher (OCLP) 
   1. Display Sleep/Wake Kick — `pmset displaysleepnow`, may unstick a hung Metal compositor
   2. Gentle WindowServer Reload — `SIGHUP`, restarts compositor without logging you out
   3. Restart WindowServer ⚠ — `SIGKILL`, frees all VRAM but logs you out
+- **Expand VRAM** — patches OpenCore `DeviceProperties` to declare more VRAM to the AMD kext, backed by system RAM via GART. Offers sizes from 512 MB up to half of installed RAM. Requires reboot.
+- **Revert VRAM Expansion** — removes the injected `VRAM,totalsize` key from OpenCore config. Requires reboot.
 
 ## Requirements
 
@@ -36,6 +38,14 @@ open VRAMGuard.app
 ```
 
 Then add `VRAMGuard.app` to **System Settings → General → Login Items** to launch at login.
+
+## VRAM Expansion
+
+The 2011 iMac's AMD Radeon has 512 MB of dedicated VRAM, which Sonoma's Metal compositor can exhaust. The expansion feature works by injecting `VRAM,totalsize` into your OpenCore `DeviceProperties` for the GPU's PCI path, causing the AMD kext to declare a larger pool. The extra allocation is backed by system RAM via GART (Graphics Address Remapping Table) — the same mechanism the GPU already uses for texture overflow.
+
+The feature scans your existing OpenCore config for an AMD GPU path before falling back to the known 2011 iMac default (`PciRoot(0x0)/Pci(0x1,0x0)/Pci(0x0,0x0)`). It offers sizes up to half of your installed RAM, leaving the rest for macOS.
+
+> **Note:** This requires an OCLP system with OpenCore on the EFI partition. It does not modify any kexts or SIP settings.
 
 ## How VRAM is measured
 
