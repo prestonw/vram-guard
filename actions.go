@@ -26,10 +26,12 @@ func restartWindowServer() {
 // Less destructive than a full kill — may recover a stuck compositor without logging out.
 func reloadWindowServer() {
 	dbgSection("ACTION: reloadWindowServer")
-	out, err := exec.Command("pkill", "-HUP", "WindowServer").CombinedOutput()
-	dbgCmd("pkill -HUP WindowServer", out, err)
+	// WindowServer runs as _windowserver (system user), so SIGHUP requires elevation.
+	// Only SIGKILL is granted to the session owner without a password.
+	err := runElevated("pkill -HUP WindowServer")
+	dbgf("pkill -HUP WindowServer (elevated): %v", err)
 	if err != nil {
-		osNotify("VRAM Guard", "Reload failed: "+strings.TrimSpace(string(out)))
+		osNotify("VRAM Guard", "Reload failed: "+err.Error())
 	}
 }
 
