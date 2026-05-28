@@ -37,9 +37,10 @@ func showExpandVRAMDialog() {
 		currentMB = 512
 	}
 
-	// Build preset list: offer sizes above current VRAM, capped to half of system RAM
-	// (leave at least half of RAM for macOS and apps)
-	presets := []int64{512, 1024, 2048, 3072, 4096}
+	// Build preset list: offer sizes above current VRAM, capped to half of system RAM.
+	// Max is 3072 MB: 4096 MB = 4,294,967,296 bytes = exactly 2^32, which overflows
+	// a uint32 — the format AMD kexts use for VRAM,totalsize and ATY,MemSize.
+	presets := []int64{512, 1024, 2048, 3072}
 	var labels []string
 	var values []int64
 	for _, p := range presets {
