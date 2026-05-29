@@ -77,7 +77,6 @@ func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
 		if err != nil {
 			systray.SetTitle("VRAM?")
 			mStats.SetTitle("VRAM unavailable: " + err.Error())
-			prevPercent = 0
 		} else {
 			label := fmt.Sprintf("%d%%", stats.Percent)
 			switch {
