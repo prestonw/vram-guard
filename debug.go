@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -22,13 +23,14 @@ const (
 )
 
 var (
-	dbgFile *os.File
-	dbgMu   sync.Mutex
-	dbgPath string
+	dbgFile    *os.File
+	dbgMu      sync.Mutex
+	dbgPath    string
+	dbgEnabled atomic.Bool // false by default — logging is off until user enables it
 )
 
-// initDebugLog opens (or creates) the log file and writes a session banner.
-// Call once at startup before any other dbg* calls.
+// initDebugLog opens (or creates) the log file.
+// Debug logging is off by default; call enableDebug() to start writing.
 func initDebugLog() {
 	dir := filepath.Join(os.Getenv("HOME"), "Library", "Logs", "VRAMGuard")
 	_ = os.MkdirAll(dir, 0755)
@@ -41,20 +43,29 @@ func initDebugLog() {
 		return // silent — logging is best-effort
 	}
 	dbgFile = f
+}
 
-	dbgSection("SESSION START")
+// enableDebug turns on verbose logging and writes a session-start banner.
+func enableDebug() {
+	dbgEnabled.Store(true)
+	dbgSection("DEBUG ENABLED")
 	dbgf("Time:       %s", time.Now().Format("2006-01-02 15:04:05 MST"))
 	dbgf("Go runtime: %s %s/%s", runtime.Version(), runtime.GOOS, runtime.GOARCH)
-
-	// macOS version
 	dbgRawCmd("sw_vers")
-	// Hardware model + RAM
 	dbgRawCmd("sysctl", "-n", "hw.model")
 	dbgRawCmd("sysctl", "-n", "hw.memsize")
-	// Disk / EFI partition presence
-	dbgRawCmd("diskutil", "list")
-	// GPU device tree path (helps verify PCI path)
 	dbgRawCmd("ioreg", "-r", "-w", "0", "-c", "IOAccelerator", "-l")
+}
+
+// disableDebug turns off verbose logging.
+func disableDebug() {
+	dbgSection("DEBUG DISABLED")
+	dbgEnabled.Store(false)
+}
+
+// isDebugEnabled reports whether verbose logging is active.
+func isDebugEnabled() bool {
+	return dbgEnabled.Load()
 }
 
 func rotateLogs(path string) {
@@ -113,6 +124,9 @@ func dbgRawCmd(name string, args ...string) {
 }
 
 func dbgWrite(s string) {
+	if !dbgEnabled.Load() {
+		return
+	}
 	dbgMu.Lock()
 	defer dbgMu.Unlock()
 	if dbgFile != nil {

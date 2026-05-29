@@ -116,7 +116,7 @@ func confirmAndKill(pid int, name string) {
 // without any visible screen disruption. No root needed on macOS 10.14+.
 func purgeInactive() {
 	dbgSection("ACTION: purgeInactive")
-	out, err := exec.Command("/usr/bin/purge").CombinedOutput()
+	out, err := exec.Command("/usr/sbin/purge").CombinedOutput()
 	dbgCmd("purge", out, err)
 }
 

@@ -63,12 +63,16 @@ func onReady() {
 
 	mInfo := systray.AddMenuItem("GPU Details...", "Show VRAM breakdown in a dialog")
 	systray.AddSeparator()
-	mDebug := systray.AddMenuItem("Show Debug Log", "Open ~/Library/Logs/VRAMGuard/vramguard.log in Console.app")
+	mDebugOn := systray.AddMenuItem("Turn on Debugging", "Enable verbose logging to ~/Library/Logs/VRAMGuard/")
+	mDebugLog := systray.AddMenuItem("Show Debug Log", "Open ~/Library/Logs/VRAMGuard/vramguard.log in Console.app")
+	mDebugOff := systray.AddMenuItem("Turn off Debugging", "Disable verbose logging")
+	mDebugLog.Hide()
+	mDebugOff.Hide()
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit VRAM Guard", "")
 
 	go pollLoop(mStats, procItems)
-	go handleClicks(procItems, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebug, mQuit)
+	go handleClicks(procItems, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebugOn, mDebugLog, mDebugOff, mQuit)
 }
 
 func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
@@ -123,7 +127,7 @@ func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
 	}
 }
 
-func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebug, mQuit *systray.MenuItem) {
+func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebugOn, mDebugLog, mDebugOff, mQuit *systray.MenuItem) {
 	for {
 		select {
 		case <-procItems[0].ClickedCh:
@@ -146,8 +150,18 @@ func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mAut
 			mAutoRelief.SetTitle(cycleAutoReliefMode())
 		case <-mInfo.ClickedCh:
 			showGPUInfo()
-		case <-mDebug.ClickedCh:
+		case <-mDebugOn.ClickedCh:
+			enableDebug()
+			mDebugOn.Hide()
+			mDebugLog.Show()
+			mDebugOff.Show()
+		case <-mDebugLog.ClickedCh:
 			openDebugLog()
+		case <-mDebugOff.ClickedCh:
+			disableDebug()
+			mDebugLog.Hide()
+			mDebugOff.Hide()
+			mDebugOn.Show()
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			return
