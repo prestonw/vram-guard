@@ -15,9 +15,11 @@ import (
 
 // VRAMStats holds current GPU memory state.
 type VRAMStats struct {
-	UsedBytes  int64
-	TotalBytes int64
-	Percent    int
+	UsedBytes     int64
+	TotalBytes    int64
+	Percent       int
+	SysMemBytes   int64 // inUseSysMemoryBytes — system RAM currently used as GPU overflow
+	OrphanedBytes int64 // orphanedReusableVidMemoryBytes — VRAM held idle by driver, reclaimable
 }
 
 // Real key names confirmed via `ioreg -r -w 0 -c IOAccelerator | grep -i vram` on target machine.
@@ -32,7 +34,9 @@ var (
 	// inUseVidMemoryBytes only appears in the AMD discrete GPU block.
 	reUsed = regexp.MustCompile(`"inUseVidMemoryBytes"\s*=\s*(\d+)`)
 	// vramFreeBytes appears in both AMD and Intel blocks; first match is AMD.
-	reFree = regexp.MustCompile(`"vramFreeBytes"\s*=\s*(\d+)`)
+	reFree     = regexp.MustCompile(`"vramFreeBytes"\s*=\s*(\d+)`)
+	reSysMem   = regexp.MustCompile(`"inUseSysMemoryBytes"\s*=\s*(\d+)`)
+	reOrphaned = regexp.MustCompile(`"orphanedReusableVidMemoryBytes"\s*=\s*(\d+)`)
 )
 
 // getVRAMStats queries ioreg for live VRAM usage on the AMD discrete GPU.
@@ -83,10 +87,18 @@ func getVRAMStats() (VRAMStats, error) {
 		pct = 100
 	}
 
-	// Log every reading at trace level (concise)
-	dbgf("VRAM  used=%d free=%d total=%d pct=%d%%", used, free, total, pct)
+	var sysMem, orphaned int64
+	if m := reSysMem.FindStringSubmatch(text); len(m) == 2 {
+		sysMem, _ = strconv.ParseInt(m[1], 10, 64)
+	}
+	if m := reOrphaned.FindStringSubmatch(text); len(m) == 2 {
+		orphaned, _ = strconv.ParseInt(m[1], 10, 64)
+	}
 
-	return VRAMStats{UsedBytes: used, TotalBytes: total, Percent: pct}, nil
+	// Log every reading at trace level (concise)
+	dbgf("VRAM  used=%d free=%d total=%d pct=%d%% sysMem=%d orphaned=%d", used, free, total, pct, sysMem, orphaned)
+
+	return VRAMStats{UsedBytes: used, TotalBytes: total, Percent: pct, SysMemBytes: sysMem, OrphanedBytes: orphaned}, nil
 }
 
 // makeIcon returns a minimal 16x16 dark-gray PNG for the menu bar icon.

@@ -53,7 +53,7 @@ func displaySleepKick() {
 	}
 }
 
-// showGPUInfo displays a macOS dialog with current VRAM breakdown.
+// showGPUInfo displays a macOS dialog with current VRAM and GART/system RAM breakdown.
 func showGPUInfo() {
 	stats, err := getVRAMStats()
 	var body string
@@ -61,11 +61,23 @@ func showGPUInfo() {
 		body = "Could not read VRAM data:\\n\\n" + err.Error()
 	} else {
 		body = fmt.Sprintf(
-			"Used:  %s\\nFree:  %s\\nTotal: %s\\n\\nUsage: %d%%",
+			"── Physical VRAM ──\\n"+
+				"Used:     %s\\n"+
+				"Free:     %s\\n"+
+				"Pool:     %s  (%d%%)\\n"+
+				"\\n"+
+				"── System RAM (GPU overflow) ──\\n"+
+				"In use:   %s\\n"+
+				"Orphaned: %s  (reclaimable)\\n"+
+				"\\n"+
+				"Auto-Relief: %s",
 			fmtMB(stats.UsedBytes),
 			fmtMB(stats.TotalBytes-stats.UsedBytes),
 			fmtMB(stats.TotalBytes),
 			stats.Percent,
+			fmtMB(stats.SysMemBytes),
+			fmtMB(stats.OrphanedBytes),
+			autoReliefLabel(currentAutoReliefMode()),
 		)
 	}
 	script := fmt.Sprintf(
@@ -96,6 +108,16 @@ func confirmAndKill(pid int, name string) {
 	if strings.Contains(string(out), "button returned:Kill") {
 		exec.Command("kill", strconv.Itoa(pid)).Run() //nolint:errcheck
 	}
+}
+
+// purgeInactive flushes the inactive file-system page cache via /usr/bin/purge.
+// This tightens system memory pressure, which signals the AMD GPU kext to evict
+// its orphaned VRAM buffer cache into GART-backed system RAM — freeing physical VRAM
+// without any visible screen disruption. No root needed on macOS 10.14+.
+func purgeInactive() {
+	dbgSection("ACTION: purgeInactive")
+	out, err := exec.Command("/usr/bin/purge").CombinedOutput()
+	dbgCmd("purge", out, err)
 }
 
 // runElevated runs a shell command via osascript with administrator privileges,

@@ -57,21 +57,19 @@ func onReady() {
 	mRestart := systray.AddMenuItem("Restart WindowServer  ⚠", "SIGKILL — frees all VRAM; you will be logged out")
 	systray.AddSeparator()
 
-	mInfo := systray.AddMenuItem("GPU Details...", "Show VRAM breakdown in a dialog")
+	// Auto-relief — click to cycle through modes
+	mAutoRelief := systray.AddMenuItem(autoReliefLabel(AutoReliefOff), "Click to cycle: Off → Gentle → Moderate → Aggressive")
 	systray.AddSeparator()
-	mExpand := systray.AddMenuItem("Expand VRAM...", "Patch OpenCore to allocate system RAM as extra VRAM (reboot required)")
-	mRevert := systray.AddMenuItem("Revert VRAM Expansion", "Remove the VRAM expansion from OpenCore config (reboot required)")
+
+	mInfo := systray.AddMenuItem("GPU Details...", "Show VRAM breakdown in a dialog")
 	systray.AddSeparator()
 	mDebug := systray.AddMenuItem("Show Debug Log", "Open ~/Library/Logs/VRAMGuard/vramguard.log in Console.app")
 	systray.AddSeparator()
 	mQuit := systray.AddMenuItem("Quit VRAM Guard", "")
 
 	go pollLoop(mStats, procItems)
-	go handleClicks(procItems, mSleep, mReload, mRestart, mInfo, mExpand, mRevert, mDebug, mQuit)
+	go handleClicks(procItems, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebug, mQuit)
 }
-
-// prevPercent tracks the last reading to fire threshold alerts only on crossing.
-var prevPercent int
 
 func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
 	update := func() {
@@ -97,14 +95,8 @@ func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
 				stats.Percent,
 			))
 
-			// Notify once when crossing 85% from below
-			if stats.Percent >= 85 && prevPercent < 85 {
-				osNotify("VRAM Guard", fmt.Sprintf(
-					"GPU memory at %d%% — close GPU-heavy apps or use Recovery Actions",
-					stats.Percent,
-				))
-			}
-			prevPercent = stats.Percent
+			// Auto-relief: runs purge and/or display sleep based on configured mode
+			checkAutoRelief(stats.Percent)
 		}
 
 		// Update top process slots
@@ -132,7 +124,7 @@ func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
 	}
 }
 
-func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mInfo, mExpand, mRevert, mDebug, mQuit *systray.MenuItem) {
+func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebug, mQuit *systray.MenuItem) {
 	for {
 		select {
 		case <-procItems[0].ClickedCh:
@@ -151,12 +143,10 @@ func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mInf
 			reloadWindowServer()
 		case <-mRestart.ClickedCh:
 			restartWindowServer()
+		case <-mAutoRelief.ClickedCh:
+			mAutoRelief.SetTitle(cycleAutoReliefMode())
 		case <-mInfo.ClickedCh:
 			showGPUInfo()
-		case <-mExpand.ClickedCh:
-			go showExpandVRAMDialog()
-		case <-mRevert.ClickedCh:
-			go revertVRAMExpansion()
 		case <-mDebug.ClickedCh:
 			openDebugLog()
 		case <-mQuit.ClickedCh:
