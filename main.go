@@ -57,8 +57,10 @@ func onReady() {
 	mRestart := systray.AddMenuItem("Restart WindowServer  ⚠", "SIGKILL — frees all VRAM; you will be logged out")
 	systray.AddSeparator()
 
-	// Auto-relief — click to cycle through modes
-	mAutoRelief := systray.AddMenuItem(autoReliefLabel(AutoReliefOff), "Click to cycle: Off → Gentle → Moderate → Aggressive")
+	// Auto-relief — restore persisted mode, click to cycle through modes
+	restoredMode := loadAutoReliefMode()
+	autoReliefModeVal.Store(int32(restoredMode))
+	mAutoRelief := systray.AddMenuItem(autoReliefLabel(restoredMode), "Click to cycle: Off → Gentle → Moderate → Aggressive")
 	systray.AddSeparator()
 
 	mInfo := systray.AddMenuItem("GPU Details...", "Show VRAM breakdown in a dialog")
@@ -69,10 +71,20 @@ func onReady() {
 	mDebugLog.Hide()
 	mDebugOff.Hide()
 	systray.AddSeparator()
+
+	mAbout := systray.AddMenuItem("About VRAM Guard…", "Version "+appVersion+" · "+githubURL)
+	systray.AddSeparator()
+
+	mLoginItem := systray.AddMenuItem(launchAtLoginLabel(), "Toggle launch at login via LaunchAgent")
+	systray.AddSeparator()
+
+	mUninstall := systray.AddMenuItem("Uninstall VRAM Guard…", "Remove app and login item")
+	systray.AddSeparator()
+
 	mQuit := systray.AddMenuItem("Quit VRAM Guard", "")
 
 	go pollLoop(mStats, procItems)
-	go handleClicks(procItems, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebugOn, mDebugLog, mDebugOff, mQuit)
+	go handleClicks(procItems, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebugOn, mDebugLog, mDebugOff, mAbout, mLoginItem, mUninstall, mQuit)
 }
 
 func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
@@ -127,7 +139,7 @@ func pollLoop(mStats *systray.MenuItem, procItems []*systray.MenuItem) {
 	}
 }
 
-func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebugOn, mDebugLog, mDebugOff, mQuit *systray.MenuItem) {
+func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mAutoRelief, mInfo, mDebugOn, mDebugLog, mDebugOff, mAbout, mLoginItem, mUninstall, mQuit *systray.MenuItem) {
 	for {
 		select {
 		case <-procItems[0].ClickedCh:
@@ -162,6 +174,21 @@ func handleClicks(procItems []*systray.MenuItem, mSleep, mReload, mRestart, mAut
 			mDebugLog.Hide()
 			mDebugOff.Hide()
 			mDebugOn.Show()
+		case <-mAbout.ClickedCh:
+			go showAbout()
+		case <-mLoginItem.ClickedCh:
+			go func() {
+				if isLaunchAtLoginEnabled() {
+					disableLaunchAtLogin()
+				} else {
+					if err := enableLaunchAtLogin(); err != nil {
+						osNotify(appName, "Login item: "+err.Error())
+					}
+				}
+				mLoginItem.SetTitle(launchAtLoginLabel())
+			}()
+		case <-mUninstall.ClickedCh:
+			go uninstall()
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			return
