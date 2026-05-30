@@ -28,11 +28,17 @@ cd "$SCRIPT_DIR"
 echo "Building..."
 go build -ldflags="-s -w" -o "$APP_NAME" .
 
+echo "Generating icon..."
+swift scripts/make_icon.swift
+iconutil -c icns VRAMGuard.iconset -o pkg/VRAMGuard.icns
+rm -rf VRAMGuard.iconset
+
 echo "Assembling .app bundle..."
 rm -rf "$APP_NAME.app"
 mkdir -p "$APP_NAME.app/Contents/MacOS"
 mkdir -p "$APP_NAME.app/Contents/Resources"
-cp "$APP_NAME" "$APP_NAME.app/Contents/MacOS/$APP_NAME"
+cp "$APP_NAME"           "$APP_NAME.app/Contents/MacOS/$APP_NAME"
+cp pkg/VRAMGuard.icns    "$APP_NAME.app/Contents/Resources/$APP_NAME.icns"
 
 cat > "$APP_NAME.app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -47,21 +53,34 @@ cat > "$APP_NAME.app/Contents/Info.plist" <<PLIST
 	<string>${APP_NAME}</string>
 	<key>CFBundleDisplayName</key>
 	<string>VRAM Guard</string>
+	<key>CFBundleIconFile</key>
+	<string>${APP_NAME}</string>
 	<key>CFBundleShortVersionString</key>
 	<string>${VERSION}</string>
 	<key>CFBundleVersion</key>
 	<string>${VERSION}</string>
+	<key>CFBundleGetInfoString</key>
+	<string>VRAM Guard ${VERSION}, © 2026 Will Preston. MIT License.</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Will Preston. MIT License.</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSRequiresAquaSystemAppearance</key>
+	<false/>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 </dict>
 </plist>
 PLIST
+
+echo "Signing..."
+codesign --deep --force --sign - "$APP_NAME.app"
 
 echo "Installing to $INSTALL_DIR/$APP_NAME.app..."
 mkdir -p "$INSTALL_DIR"
