@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Postinstall — runs as root after pkg installs /Applications/VRAMGuard.app
+# Launch at Login is intentionally NOT set here; users enable it via the menu bar.
+# This script just opens the app once so it appears in the menu bar immediately.
+
+# Find the logged-in user (works during installer, where $USER is root)
+LOGGED_IN_USER=$(stat -f%Su /dev/console 2>/dev/null || echo "")
+
+if [[ -n "$LOGGED_IN_USER" && "$LOGGED_IN_USER" != "root" ]]; then
+    sudo -u "$LOGGED_IN_USER" open /Applications/VRAMGuard.app
+fi
+
+exit 0
