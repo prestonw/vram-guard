@@ -88,6 +88,12 @@ install: bundle
 run: bundle
 	open $(APP_DIR)
 
+## zip: create a distributable .zip of the .app (no pkg/signing needed)
+zip: bundle
+	mkdir -p $(DIST_DIR)
+	ditto -c -k --sequesterRsrc --keepParent $(APP_DIR) $(DIST_DIR)/$(APP_NAME)-$(VERSION).zip
+	@echo "Archive: $(DIST_DIR)/$(APP_NAME)-$(VERSION).zip"
+
 ## pkg: create a distributable .pkg installer (installs to /Applications)
 ## Requires macOS with Xcode Command Line Tools.
 pkg: bundle
