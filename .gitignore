@@ -1,0 +1,6 @@
+# local agent/config + backup junk — never push
+.grok/
+.env.local.bak.*
+.agents/
+*.tsbuildinfo
+__pycache__/
